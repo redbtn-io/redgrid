@@ -63,6 +63,10 @@
   border-bottom: 1px solid var(--border, #2a2a2a);
   user-select: none;
   flex-shrink: 0;
+  /* touch-action: none claims touches on this element for our drag handler
+     instead of letting the browser hijack them for scroll/pan. Required for
+     touch drag to work when the canvas wrapper has touch-action: pan-x pan-y. */
+  touch-action: none;
 }
 
 .redgrid-item__header:active {
@@ -118,6 +122,10 @@
   position: absolute;
   bottom: 0;
   right: 0;
+  /* Touch tap-target — bumped from 16x16 to 28x28 on small viewports below
+     and overridden back to 16x16 on desktop via media query. Apple HIG /
+     Material recommend ≥44px but 28 + invisible padding hits the same
+     practical target without visually swelling the corner. */
   width: 16px;
   height: 16px;
   cursor: nwse-resize;
@@ -125,6 +133,8 @@
   align-items: center;
   justify-content: center;
   color: var(--text-muted, #737373);
+  /* touch-action: none — see header note. Required for touch resize. */
+  touch-action: none;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -188,4 +198,20 @@
 
 .redgrid-toolbar__item-label {
   line-height: 1;
+}
+
+/* --- Touch-device tap-target boost --- */
+@media (pointer: coarse) {
+  /* Make the resize handle easier to grab on finger-based devices.
+     The hit area grows; the visual icon stays small. */
+  .redgrid-item__resize {
+    width: 28px;
+    height: 28px;
+  }
+  /* Slightly taller drag header on touch so it's easier to grab without
+     accidentally hitting the widget content below. */
+  .redgrid-item__header {
+    height: 32px;
+    padding: 0 10px;
+  }
 }
