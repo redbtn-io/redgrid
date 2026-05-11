@@ -1,6 +1,6 @@
 {
   "name": "@redbtn/redgrid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Customizable dashboard grid system with resizable, moveable, selectable widgets",
   "type": "module",
   "main": "./dist/index.cjs",

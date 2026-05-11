@@ -41,10 +41,14 @@ export function GridItem({
   const registration = getWidget(widget.type);
   const WidgetComponent = registration?.component;
 
-  // Drag handlers
+  // Drag handlers — pointer events so this works for mouse, touch, AND stylus.
+  // Mouse-only events meant the resize/drag handles silently did nothing on
+  // phones/tablets; pointer events unify both transports.
   const handleDragStart = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
       if (!editable) return;
+      // Don't claim secondary mouse buttons (right-click, middle-click).
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(true);
@@ -55,7 +59,7 @@ export function GridItem({
         startY: widget.y,
       };
 
-      const handleMouseMove = (ev: MouseEvent) => {
+      const handlePointerMove = (ev: PointerEvent) => {
         if (!dragStartRef.current) return;
         const dx = ev.clientX - dragStartRef.current.mouseX;
         const dy = ev.clientY - dragStartRef.current.mouseY;
@@ -68,23 +72,29 @@ export function GridItem({
         }
       };
 
-      const handleMouseUp = () => {
+      const handlePointerUp = () => {
         setIsDragging(false);
         dragStartRef.current = null;
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('pointermove', handlePointerMove);
+        document.removeEventListener('pointerup', handlePointerUp);
+        document.removeEventListener('pointercancel', handlePointerUp);
       };
 
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('pointermove', handlePointerMove);
+      document.addEventListener('pointerup', handlePointerUp);
+      // pointercancel fires when the OS takes the pointer (e.g. touch interrupted
+      // by a system gesture). Treat the same as pointer-up so we never leak
+      // dragging-state across releases.
+      document.addEventListener('pointercancel', handlePointerUp);
     },
     [editable, widget.x, widget.y, widget.id, columnWidth, rowHeight, gap, onMove]
   );
 
-  // Resize handlers
+  // Resize handlers — same pointer-events conversion as drag.
   const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
       if (!editable) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       setIsResizing(true);
@@ -95,7 +105,7 @@ export function GridItem({
         startH: widget.h,
       };
 
-      const handleMouseMove = (ev: MouseEvent) => {
+      const handlePointerMove = (ev: PointerEvent) => {
         if (!resizeStartRef.current) return;
         const dx = ev.clientX - resizeStartRef.current.mouseX;
         const dy = ev.clientY - resizeStartRef.current.mouseY;
@@ -108,15 +118,17 @@ export function GridItem({
         }
       };
 
-      const handleMouseUp = () => {
+      const handlePointerUp = () => {
         setIsResizing(false);
         resizeStartRef.current = null;
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('pointermove', handlePointerMove);
+        document.removeEventListener('pointerup', handlePointerUp);
+        document.removeEventListener('pointercancel', handlePointerUp);
       };
 
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('pointermove', handlePointerMove);
+      document.addEventListener('pointerup', handlePointerUp);
+      document.addEventListener('pointercancel', handlePointerUp);
     },
     [editable, widget.w, widget.h, widget.id, columnWidth, rowHeight, gap, onResize]
   );
@@ -154,7 +166,7 @@ export function GridItem({
     >
       {/* Drag handle — header bar */}
       {editable && (
-        <div className="redgrid-item__header" onMouseDown={handleDragStart}>
+        <div className="redgrid-item__header" onPointerDown={handleDragStart}>
           <span className="redgrid-item__grip">&#x2630;</span>
           {selected && onRemove && (
             <button
@@ -184,7 +196,7 @@ export function GridItem({
 
       {/* Resize handle — bottom-right corner */}
       {editable && (
-        <div className="redgrid-item__resize" onMouseDown={handleResizeStart}>
+        <div className="redgrid-item__resize" onPointerDown={handleResizeStart}>
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.5" fill="none" />
           </svg>
