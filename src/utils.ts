@@ -2,6 +2,10 @@ import type { GridWidget } from './types';
 
 /**
  * Snap a value to the nearest grid unit.
+ *
+ * @param value - The raw value to snap (e.g. a pixel offset).
+ * @param gridSize - The size of one grid unit that `value` is rounded to a multiple of.
+ * @returns The nearest multiple of `gridSize` to `value`.
  */
 export function snapToGrid(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
