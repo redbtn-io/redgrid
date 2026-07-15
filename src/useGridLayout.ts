@@ -20,7 +20,7 @@ export interface UseGridLayoutReturn {
   /** Resize a widget */
   resizeWidget: (id: string, w: number, h: number) => void;
   /** Add a new widget to the layout */
-  addWidget: (config: Omit<GridItemConfig, 'id'> & { id?: string }) => string;
+  addWidget: (config: Omit<GridItemConfig, 'id'> & { id?: string }) => string | null;
   /** Remove a widget from the layout */
   removeWidget: (id: string) => void;
   /** Update widget props */
@@ -107,17 +107,19 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
   );
 
   const addWidget = useCallback(
-    (config: Omit<GridItemConfig, 'id'> & { id?: string }): string => {
+    (config: Omit<GridItemConfig, 'id'> & { id?: string }): string | null => {
       const id = config.id ?? generateId();
       const newWidget: GridWidget = { ...config, id };
+      let didInsert = false;
 
       setWidgets((prev) => {
         if (!isWithinBounds(newWidget, columns)) return prev;
         if (hasCollisions(newWidget, prev)) return prev;
+        didInsert = true;
         return [...prev, newWidget];
       });
 
-      return id;
+      return didInsert ? id : null;
     },
     [columns]
   );
