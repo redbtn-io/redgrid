@@ -188,4 +188,127 @@ describe('useGridLayout', () => {
 
     unmount();
   });
+
+  // Regression (round 3): the synchronous mirror `addWidget` validates against
+  // was only advanced by `addWidget` itself, so a *non-add* mutation
+  // (remove/move/resize/setLayout/deserialize) batched in the same tick left it
+  // stale. `addWidget` would then treat an already-freed slot as occupied and
+  // wrongly reject a valid insert. The mirror must reflect every mutation.
+  it('validates a batched add against a slot freed by a remove earlier in the same tick', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let aId: string | null = null;
+
+    // Seed a widget occupying (0,0) in its own tick so the mirror is synced.
+    act(() => {
+      aId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    expect(aId).toBeTypeOf('string');
+
+    // Same tick: remove the widget, then add into the slot it just vacated.
+    let readdedId: string | null = 'fallback';
+    act(() => {
+      apiRef.current!.removeWidget(aId!);
+      readdedId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+
+    // On the stale-mirror code the removed widget still appeared to occupy
+    // (0,0), so the add was falsely rejected as a collision and returned null.
+    expect(readdedId).toBeTypeOf('string');
+    expect(readdedId).not.toBe(aId);
+    expect(apiRef.current?.layout).toHaveLength(1);
+    expect(apiRef.current?.layout[0]?.id).toBe(readdedId);
+
+    unmount();
+  });
+
+  // The headline mixed-mutation case: multiple mutations, including non-add
+  // ones (remove + resize), batched in the same tick before an add.
+  it('validates a batched add against a mix of non-add mutations (remove + resize) in the same tick', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let aId: string | null = null;
+    let bId: string | null = null;
+
+    // Seed a full 2-column row: A at (0,0), B at (1,0).
+    act(() => {
+      aId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+      bId = apiRef.current!.addWidget({ type: 'chart', x: 1, y: 0, w: 1, h: 1 });
+    });
+    expect(aId).toBeTypeOf('string');
+    expect(bId).toBeTypeOf('string');
+
+    // Same tick: remove A (frees (0,0)), resize B (a non-add mutation that must
+    // also keep the mirror coherent), then add into A's freed slot.
+    let addedId: string | null = 'fallback';
+    act(() => {
+      apiRef.current!.removeWidget(aId!);
+      apiRef.current!.resizeWidget(bId!, 1, 2);
+      addedId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+
+    expect(addedId).toBeTypeOf('string');
+    expect(apiRef.current?.layout).toHaveLength(2);
+    const ids = apiRef.current?.layout.map((w) => w.id);
+    expect(ids).toContain(bId);
+    expect(ids).toContain(addedId);
+    expect(ids).not.toContain(aId);
+    // B kept its resize.
+    const b = apiRef.current?.layout.find((w) => w.id === bId);
+    expect(b?.h).toBe(2);
+
+    unmount();
+  });
+
+  // The move path: a widget moved out of a slot in the same tick must free that
+  // slot for a subsequent add.
+  it('validates a batched add against a move applied earlier in the same tick', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let aId: string | null = null;
+
+    // Seed A occupying (0,0).
+    act(() => {
+      aId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    expect(aId).toBeTypeOf('string');
+
+    // Same tick: move A out of (0,0) to (1,0), then add into (0,0).
+    let addedId: string | null = 'fallback';
+    act(() => {
+      apiRef.current!.moveWidget(aId!, 1, 0);
+      addedId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+
+    expect(addedId).toBeTypeOf('string');
+    expect(apiRef.current?.layout).toHaveLength(2);
+    const moved = apiRef.current?.layout.find((w) => w.id === aId);
+    expect(moved?.x).toBe(1);
+
+    unmount();
+  });
+
+  // setLayout replaces the whole layout; a same-tick add must validate against
+  // the replacement, not the pre-replacement mirror.
+  it('validates a batched add against a setLayout replacement in the same tick', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    // Seed A occupying (0,0).
+    act(() => {
+      apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    expect(apiRef.current?.layout).toHaveLength(1);
+
+    // Same tick: replace the layout with a widget at (1,0), then add at (0,0).
+    let addedId: string | null = 'fallback';
+    act(() => {
+      apiRef.current!.setLayout([{ id: 'seeded', type: 'chart', x: 1, y: 0, w: 1, h: 1 }]);
+      addedId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+
+    expect(addedId).toBeTypeOf('string');
+    expect(apiRef.current?.layout).toHaveLength(2);
+    const ids = apiRef.current?.layout.map((w) => w.id);
+    expect(ids).toContain('seeded');
+    expect(ids).toContain(addedId);
+
+    unmount();
+  });
 });

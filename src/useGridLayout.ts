@@ -50,71 +50,88 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Authoritative mirror of the committed layout. `addWidget` needs to decide
+  // Authoritative *synchronous* mirror of the layout. `addWidget` has to decide
   // its return value synchronously, but React batches state updates so the
-  // `setWidgets` updater may not have run yet by the time we return. This ref
-  // is resynced to committed state after every render and is also advanced
-  // synchronously by `addWidget`, so a batch of adds in the same tick validate
-  // against each other rather than only against the last committed render.
+  // `setWidgets` updater may not have run yet by the time we return. Reading
+  // committed state (or a mirror advanced only by `addWidget`) is not enough:
+  // a `removeWidget` / `moveWidget` / `resizeWidget` / `setLayout` /
+  // `deserialize` batched in the same tick would leave that snapshot stale, so
+  // a valid insert could be wrongly rejected as colliding (or an invalid one
+  // wrongly accepted). To avoid that, EVERY mutation flows through `commit`,
+  // which computes its next layout from `widgetsRef.current` and writes the ref
+  // synchronously before scheduling the React state update. The ref is thus
+  // never behind a batched mutation, and `addWidget` always validates against
+  // the true current layout.
   const widgetsRef = useRef<GridWidget[]>(widgets);
+
+  // Backstop: keep the mirror consistent with committed state after render (a
+  // no-op in normal flow, but guards against any state change we didn't route
+  // through `commit`).
   useEffect(() => {
     widgetsRef.current = widgets;
   }, [widgets]);
+
+  // Single write path for the layout: advance the synchronous mirror first,
+  // then schedule the React state update from the same value. Because the ref
+  // is updated before we return, a subsequent mutation in the same tick reads a
+  // layout that already reflects this one.
+  const commit = useCallback((next: GridWidget[]) => {
+    widgetsRef.current = next;
+    setWidgets(next);
+  }, []);
 
   const rows = useMemo(() => computeRows(widgets), [widgets]);
 
   const moveWidget = useCallback(
     (id: string, x: number, y: number) => {
-      setWidgets((prev) => {
-        const idx = prev.findIndex((w) => w.id === id);
-        if (idx === -1) return prev;
+      const prev = widgetsRef.current;
+      const idx = prev.findIndex((w) => w.id === id);
+      if (idx === -1) return;
 
-        const widget = prev[idx];
-        const moved: GridWidget = { ...widget, x, y };
+      const widget = prev[idx];
+      const moved: GridWidget = { ...widget, x, y };
 
-        // Validate bounds
-        if (!isWithinBounds(moved, columns)) return prev;
+      // Validate bounds
+      if (!isWithinBounds(moved, columns)) return;
 
-        // Check collisions with other widgets
-        const others = prev.filter((w) => w.id !== id);
-        if (hasCollisions(moved, others)) return prev;
+      // Check collisions with other widgets
+      const others = prev.filter((w) => w.id !== id);
+      if (hasCollisions(moved, others)) return;
 
-        const next = [...prev];
-        next[idx] = moved;
-        return next;
-      });
+      const next = [...prev];
+      next[idx] = moved;
+      commit(next);
     },
-    [columns]
+    [columns, commit]
   );
 
   const resizeWidget = useCallback(
     (id: string, w: number, h: number) => {
-      setWidgets((prev) => {
-        const idx = prev.findIndex((widget) => widget.id === id);
-        if (idx === -1) return prev;
+      const prev = widgetsRef.current;
+      const idx = prev.findIndex((widget) => widget.id === id);
+      if (idx === -1) return;
 
-        const widget = prev[idx];
-        const { w: clampedW, h: clampedH } = clampSize(
-          w,
-          h,
-          widget.minW,
-          widget.minH,
-          widget.maxW,
-          widget.maxH
-        );
-        const resized: GridWidget = { ...widget, w: clampedW, h: clampedH };
+      const widget = prev[idx];
+      const { w: clampedW, h: clampedH } = clampSize(
+        w,
+        h,
+        widget.minW,
+        widget.minH,
+        widget.maxW,
+        widget.maxH
+      );
+      const resized: GridWidget = { ...widget, w: clampedW, h: clampedH };
 
-        if (!isWithinBounds(resized, columns)) return prev;
+      if (!isWithinBounds(resized, columns)) return;
 
-        const others = prev.filter((other) => other.id !== id);
-        if (hasCollisions(resized, others)) return prev;
+      const others = prev.filter((other) => other.id !== id);
+      if (hasCollisions(resized, others)) return;
 
-        const next = [...prev];
-        next[idx] = resized;
-        return next;
-      });
+      const next = [...prev];
+      next[idx] = resized;
+      commit(next);
     },
-    [columns]
+    [columns, commit]
   );
 
   const addWidget = useCallback(
@@ -122,45 +139,38 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
       const id = config.id ?? generateId();
       const newWidget: GridWidget = { ...config, id };
 
-      // Decide the result synchronously against the authoritative layout. We
-      // must not rely on a flag mutated inside the `setWidgets` updater: React
-      // may run that updater later (updates are batched), which previously made
-      // successful adds report `null`. Validating here against `widgetsRef`
-      // guarantees a rejected insert (out of bounds / collision) returns `null`
-      // and an accepted insert returns its id, even for adds batched together.
+      // Validate synchronously against the authoritative mirror, which reflects
+      // every prior mutation in this tick (adds *and* removes/moves/resizes/
+      // setLayout/deserialize) — not just the last committed render. A rejected
+      // insert (out of bounds / collision) returns `null`; an accepted insert
+      // returns its id and is committed through the shared write path.
       const current = widgetsRef.current;
       if (!isWithinBounds(newWidget, columns)) return null;
       if (hasCollisions(newWidget, current)) return null;
 
-      const next = [...current, newWidget];
-      // Advance the mirror before scheduling state so a later add in the same
-      // tick sees this insertion and can reject a colliding one.
-      widgetsRef.current = next;
-      setWidgets((prev) =>
-        isWithinBounds(newWidget, columns) && !hasCollisions(newWidget, prev)
-          ? [...prev, newWidget]
-          : prev
-      );
-
+      commit([...current, newWidget]);
       return id;
     },
-    [columns]
+    [columns, commit]
   );
 
-  const removeWidget = useCallback((id: string) => {
-    setWidgets((prev) => prev.filter((w) => w.id !== id));
-    setSelectedId((prev) => (prev === id ? null : prev));
-  }, []);
+  const removeWidget = useCallback(
+    (id: string) => {
+      commit(widgetsRef.current.filter((w) => w.id !== id));
+      setSelectedId((prev) => (prev === id ? null : prev));
+    },
+    [commit]
+  );
 
   const updateWidgetProps = useCallback(
     (id: string, props: Record<string, unknown>) => {
-      setWidgets((prev) =>
-        prev.map((w) =>
+      commit(
+        widgetsRef.current.map((w) =>
           w.id === id ? { ...w, props: { ...w.props, ...props } } : w
         )
       );
     },
-    []
+    [commit]
   );
 
   const selectWidget = useCallback((id: string | null) => {
@@ -176,13 +186,19 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
     };
   }, [columns, rowHeight, gap, widgets]);
 
-  const deserialize = useCallback((data: SerializedLayout) => {
-    setWidgets(data.widgets.map((w) => ({ ...w })));
-  }, []);
+  const deserialize = useCallback(
+    (data: SerializedLayout) => {
+      commit(data.widgets.map((w) => ({ ...w })));
+    },
+    [commit]
+  );
 
-  const setLayout = useCallback((newWidgets: GridItemConfig[]) => {
-    setWidgets(newWidgets.map((w) => ({ ...w })));
-  }, []);
+  const setLayout = useCallback(
+    (newWidgets: GridItemConfig[]) => {
+      commit(newWidgets.map((w) => ({ ...w })));
+    },
+    [commit]
+  );
 
   return {
     layout: widgets,
