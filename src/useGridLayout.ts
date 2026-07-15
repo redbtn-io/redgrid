@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { GridLayoutConfig, GridWidget, GridItemConfig, SerializedLayout } from './types';
 import { clampSize, hasCollisions, isWithinBounds, computeRows, generateId } from './utils';
 
@@ -49,6 +49,17 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
     () => (config.widgets ?? []).map((w) => ({ ...w }))
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Authoritative mirror of the committed layout. `addWidget` needs to decide
+  // its return value synchronously, but React batches state updates so the
+  // `setWidgets` updater may not have run yet by the time we return. This ref
+  // is resynced to committed state after every render and is also advanced
+  // synchronously by `addWidget`, so a batch of adds in the same tick validate
+  // against each other rather than only against the last committed render.
+  const widgetsRef = useRef<GridWidget[]>(widgets);
+  useEffect(() => {
+    widgetsRef.current = widgets;
+  }, [widgets]);
 
   const rows = useMemo(() => computeRows(widgets), [widgets]);
 
@@ -110,16 +121,28 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
     (config: Omit<GridItemConfig, 'id'> & { id?: string }): string | null => {
       const id = config.id ?? generateId();
       const newWidget: GridWidget = { ...config, id };
-      let didInsert = false;
 
-      setWidgets((prev) => {
-        if (!isWithinBounds(newWidget, columns)) return prev;
-        if (hasCollisions(newWidget, prev)) return prev;
-        didInsert = true;
-        return [...prev, newWidget];
-      });
+      // Decide the result synchronously against the authoritative layout. We
+      // must not rely on a flag mutated inside the `setWidgets` updater: React
+      // may run that updater later (updates are batched), which previously made
+      // successful adds report `null`. Validating here against `widgetsRef`
+      // guarantees a rejected insert (out of bounds / collision) returns `null`
+      // and an accepted insert returns its id, even for adds batched together.
+      const current = widgetsRef.current;
+      if (!isWithinBounds(newWidget, columns)) return null;
+      if (hasCollisions(newWidget, current)) return null;
 
-      return didInsert ? id : null;
+      const next = [...current, newWidget];
+      // Advance the mirror before scheduling state so a later add in the same
+      // tick sees this insertion and can reject a colliding one.
+      widgetsRef.current = next;
+      setWidgets((prev) =>
+        isWithinBounds(newWidget, columns) && !hasCollisions(newWidget, prev)
+          ? [...prev, newWidget]
+          : prev
+      );
+
+      return id;
     },
     [columns]
   );
