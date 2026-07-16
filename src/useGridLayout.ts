@@ -186,18 +186,35 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
     };
   }, [columns, rowHeight, gap, widgets]);
 
+  // Drop a dangling selection: if a wholesale layout replacement no longer
+  // contains the selected widget, clear it. Mirrors the invariant `removeWidget`
+  // already maintains — `selectedId` must reference a live widget or be null, or
+  // consumers keyed off it (inspector panels, a toolbar remove wired to
+  // `removeWidget(selectedId)`) act on a widget that no longer exists. Uses the
+  // functional updater so it reads the latest selection even when batched with
+  // other mutations in the same tick.
+  const reconcileSelection = useCallback((next: GridWidget[]) => {
+    setSelectedId((prev) =>
+      prev !== null && !next.some((w) => w.id === prev) ? null : prev
+    );
+  }, []);
+
   const deserialize = useCallback(
     (data: SerializedLayout) => {
-      commit(data.widgets.map((w) => ({ ...w })));
+      const next = data.widgets.map((w) => ({ ...w }));
+      commit(next);
+      reconcileSelection(next);
     },
-    [commit]
+    [commit, reconcileSelection]
   );
 
   const setLayout = useCallback(
     (newWidgets: GridItemConfig[]) => {
-      commit(newWidgets.map((w) => ({ ...w })));
+      const next = newWidgets.map((w) => ({ ...w }));
+      commit(next);
+      reconcileSelection(next);
     },
-    [commit]
+    [commit, reconcileSelection]
   );
 
   return {
