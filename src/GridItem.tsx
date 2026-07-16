@@ -35,8 +35,29 @@ export function GridItem({
   const itemRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
-  const resizeStartRef = useRef<{ mouseX: number; mouseY: number; startW: number; startH: number } | null>(null);
+  // `lastX/lastY` (drag) and `lastW/lastH` (resize) track the most recently
+  // *emitted* target so the per-move guard compares against it — not against
+  // `widget.x/widget.w` frozen in this closure at pointerdown. Those props never
+  // update mid-gesture (the document listener is registered once), so guarding
+  // on them stuck the guard on the START value: after moving away, returning to
+  // the origin cell/size was silently swallowed and the widget never followed
+  // the pointer home.
+  const dragStartRef = useRef<{
+    mouseX: number;
+    mouseY: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+  } | null>(null);
+  const resizeStartRef = useRef<{
+    mouseX: number;
+    mouseY: number;
+    startW: number;
+    startH: number;
+    lastW: number;
+    lastH: number;
+  } | null>(null);
 
   const registration = getWidget(widget.type);
   const WidgetComponent = registration?.component;
@@ -57,6 +78,8 @@ export function GridItem({
         mouseY: e.clientY,
         startX: widget.x,
         startY: widget.y,
+        lastX: widget.x,
+        lastY: widget.y,
       };
 
       const handlePointerMove = (ev: PointerEvent) => {
@@ -67,7 +90,12 @@ export function GridItem({
         const cellH = rowHeight + gap;
         const newX = dragStartRef.current.startX + Math.round(dx / cellW);
         const newY = dragStartRef.current.startY + Math.round(dy / cellH);
-        if (newX !== widget.x || newY !== widget.y) {
+        // Compare against the last emitted target (persisted in the ref), not
+        // the pointerdown-frozen `widget.x/widget.y`, so a return to any earlier
+        // cell — including the origin — still fires.
+        if (newX !== dragStartRef.current.lastX || newY !== dragStartRef.current.lastY) {
+          dragStartRef.current.lastX = newX;
+          dragStartRef.current.lastY = newY;
           onMove?.(widget.id, Math.max(0, newX), Math.max(0, newY));
         }
       };
@@ -103,6 +131,8 @@ export function GridItem({
         mouseY: e.clientY,
         startW: widget.w,
         startH: widget.h,
+        lastW: widget.w,
+        lastH: widget.h,
       };
 
       const handlePointerMove = (ev: PointerEvent) => {
@@ -113,7 +143,11 @@ export function GridItem({
         const cellH = rowHeight + gap;
         const newW = resizeStartRef.current.startW + Math.round(dx / cellW);
         const newH = resizeStartRef.current.startH + Math.round(dy / cellH);
-        if (newW !== widget.w || newH !== widget.h) {
+        // Guard against the last emitted size, not the frozen `widget.w/h`, so
+        // shrinking back to the original size after growing still fires.
+        if (newW !== resizeStartRef.current.lastW || newH !== resizeStartRef.current.lastH) {
+          resizeStartRef.current.lastW = newW;
+          resizeStartRef.current.lastH = newH;
           onResize?.(widget.id, Math.max(1, newW), Math.max(1, newH));
         }
       };

@@ -312,6 +312,33 @@ describe('GridItem — drag to move', () => {
     unmount();
   });
 
+  it('re-emits the origin cell when dragged away and back within one gesture', () => {
+    // Regression: the move guard used to compare each new target against
+    // `widget.x/widget.y` captured at pointerdown (frozen for the whole drag,
+    // since the document listener is registered once). That froze the guard on
+    // the START cell, so returning the pointer to the origin cell — after moving
+    // away — never re-emitted onMove. The widget stayed stuck at the last
+    // distinct cell instead of following the pointer home. The guard must track
+    // the last *emitted* target, not the start position.
+    const onMove = vi.fn();
+    const { container, unmount } = mount(
+      <GridItem widget={baseWidget} {...dragProps} onMove={onMove} />
+    );
+    const header = container.querySelector('.redgrid-item__header') as HTMLElement;
+
+    // baseWidget starts at (1, 1). cell-cells are 110px (x) / 60px (y).
+    fire(header, pointer('pointerdown', { clientX: 0, clientY: 0 }));
+    // Drag +2 cols / +2 rows => (3, 3).
+    fire(document, pointer('pointermove', { clientX: 220, clientY: 120 }));
+    expect(onMove).toHaveBeenLastCalledWith('w1', 3, 3);
+    // Return the pointer to the origin => must emit the original (1, 1).
+    fire(document, pointer('pointermove', { clientX: 0, clientY: 0 }));
+    expect(onMove).toHaveBeenLastCalledWith('w1', 1, 1);
+
+    fire(document, pointer('pointerup'));
+    unmount();
+  });
+
   it('detaches the document listeners after pointer-up (no moves leak past release)', () => {
     const onMove = vi.fn();
     const { container, unmount } = mount(
@@ -385,6 +412,29 @@ describe('GridItem — resize', () => {
     fire(document, pointer('pointermove', { clientX: 0, clientY: 0 }));
     expect(onResize).toHaveBeenCalledWith('w1', 1, 2);
 
+    unmount();
+  });
+
+  it('re-emits the original size when resized larger and back within one gesture', () => {
+    // Same regression class as drag: the resize guard compared against
+    // `widget.w/widget.h` frozen at pointerdown, so shrinking back to the
+    // starting size (after growing) never re-emitted onResize.
+    const onResize = vi.fn();
+    const { container, unmount } = mount(
+      <GridItem widget={baseWidget} {...resizeProps} onResize={onResize} />
+    );
+    const handle = container.querySelector('.redgrid-item__resize') as HTMLElement;
+
+    // baseWidget is 2x2.
+    fire(handle, pointer('pointerdown', { clientX: 0, clientY: 0 }));
+    // Grow +1 col / +1 row => (3, 3).
+    fire(document, pointer('pointermove', { clientX: 110, clientY: 60 }));
+    expect(onResize).toHaveBeenLastCalledWith('w1', 3, 3);
+    // Return to the start => must emit the original (2, 2).
+    fire(document, pointer('pointermove', { clientX: 0, clientY: 0 }));
+    expect(onResize).toHaveBeenLastCalledWith('w1', 2, 2);
+
+    fire(document, pointer('pointerup'));
     unmount();
   });
 
