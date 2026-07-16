@@ -311,4 +311,124 @@ describe('useGridLayout', () => {
 
     unmount();
   });
+
+  // --- Selection reconciliation on wholesale layout replacement -------------
+  // `removeWidget` already clears a dangling selection; `setLayout` and
+  // `deserialize` must uphold the same invariant so `selectedId` never points
+  // at a widget that is no longer in the layout.
+
+  it('clears the selection when setLayout drops the selected widget', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let selId: string | null = null;
+
+    act(() => {
+      selId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    act(() => {
+      apiRef.current!.selectWidget(selId!);
+    });
+    expect(apiRef.current?.selectedId).toBe(selId);
+
+    // Replace the layout with a widget that does NOT include the selected id.
+    act(() => {
+      apiRef.current!.setLayout([{ id: 'fresh', type: 'chart', x: 0, y: 0, w: 1, h: 1 }]);
+    });
+
+    expect(apiRef.current?.selectedId).toBeNull();
+    // Sanity: the selected id truly is gone from the layout.
+    expect(apiRef.current?.layout.map((w) => w.id)).not.toContain(selId);
+
+    unmount();
+  });
+
+  it('keeps the selection when setLayout still contains the selected widget', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    act(() => {
+      apiRef.current!.addWidget({ id: 'keep', type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    act(() => {
+      apiRef.current!.selectWidget('keep');
+    });
+    expect(apiRef.current?.selectedId).toBe('keep');
+
+    // Replacement still includes the selected id -> selection must survive.
+    act(() => {
+      apiRef.current!.setLayout([
+        { id: 'keep', type: 'chart', x: 1, y: 0, w: 1, h: 1 },
+        { id: 'other', type: 'chart', x: 0, y: 0, w: 1, h: 1 },
+      ]);
+    });
+
+    expect(apiRef.current?.selectedId).toBe('keep');
+
+    unmount();
+  });
+
+  it('clears the selection when deserialize drops the selected widget', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let selId: string | null = null;
+
+    act(() => {
+      selId = apiRef.current!.addWidget({ type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    act(() => {
+      apiRef.current!.selectWidget(selId!);
+    });
+    expect(apiRef.current?.selectedId).toBe(selId);
+
+    act(() => {
+      apiRef.current!.deserialize({
+        columns: 2,
+        rowHeight: 60,
+        gap: 8,
+        widgets: [{ id: 'restored', type: 'chart', x: 0, y: 0, w: 1, h: 1 }],
+      });
+    });
+
+    expect(apiRef.current?.selectedId).toBeNull();
+    expect(apiRef.current?.layout.map((w) => w.id)).not.toContain(selId);
+
+    unmount();
+  });
+
+  it('keeps the selection when deserialize still contains the selected widget', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    act(() => {
+      apiRef.current!.addWidget({ id: 'keep', type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    act(() => {
+      apiRef.current!.selectWidget('keep');
+    });
+    expect(apiRef.current?.selectedId).toBe('keep');
+
+    act(() => {
+      apiRef.current!.deserialize({
+        columns: 2,
+        rowHeight: 60,
+        gap: 8,
+        widgets: [{ id: 'keep', type: 'chart', x: 1, y: 0, w: 1, h: 1 }],
+      });
+    });
+
+    expect(apiRef.current?.selectedId).toBe('keep');
+
+    unmount();
+  });
+
+  it('leaves selection null when setLayout replaces layout with nothing selected', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    // No selection to begin with -> reconciliation must be a no-op (stay null).
+    expect(apiRef.current?.selectedId).toBeNull();
+
+    act(() => {
+      apiRef.current!.setLayout([{ id: 'x', type: 'chart', x: 0, y: 0, w: 1, h: 1 }]);
+    });
+
+    expect(apiRef.current?.selectedId).toBeNull();
+
+    unmount();
+  });
 });
