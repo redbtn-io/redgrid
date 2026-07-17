@@ -431,4 +431,76 @@ describe('useGridLayout', () => {
 
     unmount();
   });
+
+  // --- serialize() same-tick coherence --------------------------------------
+  // `serialize()` is an imperative read, like `addWidget`'s return value: it
+  // must reflect every mutation issued in the current tick, not only the last
+  // committed render. It reads the same authoritative synchronous mirror
+  // (`widgetsRef`) every mutation flows through. Reading committed state instead
+  // makes an "add (or remove) then serialize-to-persist" flow save a stale
+  // snapshot — the just-added widget missing, or a just-removed one still there.
+
+  it('serialize() reflects an add issued in the same tick', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let snapshot: ReturnType<NonNullable<typeof apiRef.current>['serialize']> | null = null;
+
+    // Add then serialize within ONE tick — before React re-renders. On the
+    // stale-read code the snapshot came back empty because the captured
+    // `serialize` closure still saw the pre-add committed state.
+    act(() => {
+      apiRef.current!.addWidget({ id: 'fresh', type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+      snapshot = apiRef.current!.serialize();
+    });
+
+    expect(snapshot!.widgets).toHaveLength(1);
+    expect(snapshot!.widgets[0]?.id).toBe('fresh');
+    expect(snapshot!.columns).toBe(2);
+
+    unmount();
+  });
+
+  it('serialize() reflects a remove issued in the same tick', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    // Seed a widget in its own tick.
+    act(() => {
+      apiRef.current!.addWidget({ id: 'gone', type: 'chart', x: 0, y: 0, w: 1, h: 1 });
+    });
+    expect(apiRef.current?.layout).toHaveLength(1);
+
+    // Remove then serialize in the same tick: the snapshot must not still
+    // contain the just-removed widget.
+    let snapshot: ReturnType<NonNullable<typeof apiRef.current>['serialize']> | null = null;
+    act(() => {
+      apiRef.current!.removeWidget('gone');
+      snapshot = apiRef.current!.serialize();
+    });
+
+    expect(snapshot!.widgets).toHaveLength(0);
+
+    unmount();
+  });
+
+  it('serialize() strips per-widget selected state and echoes grid config', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    act(() => {
+      apiRef.current!.addWidget({
+        id: 'w',
+        type: 'chart',
+        x: 0,
+        y: 0,
+        w: 1,
+        h: 1,
+        selected: true,
+      } as Parameters<NonNullable<typeof apiRef.current>['addWidget']>[0]);
+    });
+
+    const snapshot = apiRef.current!.serialize();
+    expect(snapshot.widgets).toHaveLength(1);
+    expect('selected' in snapshot.widgets[0]!).toBe(false);
+    expect(snapshot).toMatchObject({ columns: 2, rowHeight: 60, gap: 8 });
+
+    unmount();
+  });
 });
