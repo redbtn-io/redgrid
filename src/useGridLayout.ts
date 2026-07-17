@@ -145,6 +145,7 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
       // insert (out of bounds / collision) returns `null`; an accepted insert
       // returns its id and is committed through the shared write path.
       const current = widgetsRef.current;
+      if (current.some((widget) => widget.id === id)) return null;
       if (!isWithinBounds(newWidget, columns)) return null;
       if (hasCollisions(newWidget, current)) return null;
 

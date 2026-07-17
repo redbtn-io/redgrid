@@ -89,6 +89,43 @@ describe('useGridLayout', () => {
     unmount();
   });
 
+  it('rejects addWidget when the requested id already exists', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+    let insertedId: string | null = null;
+
+    act(() => {
+      insertedId = apiRef.current!.addWidget({
+        id: 'dupe',
+        type: 'chart',
+        x: 0,
+        y: 0,
+        w: 1,
+        h: 1,
+      });
+    });
+    expect(insertedId).toBe('dupe');
+
+    let duplicateId: string | null = 'fallback';
+    act(() => {
+      duplicateId = apiRef.current!.addWidget({
+        id: 'dupe',
+        type: 'chart',
+        x: 1,
+        y: 0,
+        w: 1,
+        h: 1,
+      });
+    });
+
+    expect(duplicateId).toBeNull();
+    expect(apiRef.current?.layout).toHaveLength(1);
+    expect(apiRef.current?.layout[0]?.id).toBe('dupe');
+    expect(apiRef.current?.layout[0]?.x).toBe(0);
+    expect(apiRef.current?.layout[0]?.y).toBe(0);
+
+    unmount();
+  });
+
   it('returns null when addWidget would collide with an existing widget', () => {
     const { apiRef, unmount } = mountUseGridLayout();
     let secondId: string | null = null;
