@@ -177,14 +177,22 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
     setSelectedId(id);
   }, []);
 
+  // Serialize the *current* layout. Like `addWidget`'s return value, this is an
+  // imperative read: it must reflect every mutation issued in this tick, so it
+  // reads the authoritative synchronous mirror (`widgetsRef.current`) that every
+  // mutation advances — not the batched `widgets` closure, which can lag a
+  // same-tick add/remove/move/resize/setLayout/deserialize and make an
+  // "add-then-serialize-to-persist" flow save a stale snapshot. The mirror is
+  // never behind committed state (see `commit` + the backstop effect), so
+  // post-render serialization is unchanged.
   const serialize = useCallback((): SerializedLayout => {
     return {
       columns,
       rowHeight,
       gap,
-      widgets: widgets.map(({ selected, ...rest }) => rest),
+      widgets: widgetsRef.current.map(({ selected, ...rest }) => rest),
     };
-  }, [columns, rowHeight, gap, widgets]);
+  }, [columns, rowHeight, gap]);
 
   // Drop a dangling selection: if a wholesale layout replacement no longer
   // contains the selected widget, clear it. Mirrors the invariant `removeWidget`
