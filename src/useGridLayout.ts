@@ -35,6 +35,52 @@ export interface UseGridLayoutReturn {
   setLayout: (widgets: GridItemConfig[]) => void;
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeIncomingWidgets(widgets: unknown, columns: number): GridWidget[] {
+  if (!Array.isArray(widgets)) return [];
+
+  const normalized: GridWidget[] = [];
+  const seenIds = new Set<string>();
+
+  for (const raw of widgets) {
+    if (!raw || typeof raw !== 'object') continue;
+
+    const candidate = raw as Partial<GridWidget>;
+    const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+    const type = typeof candidate.type === 'string' ? candidate.type.trim() : '';
+    if (!id || !type || seenIds.has(id)) continue;
+
+    const x = toFiniteNumber(candidate.x);
+    const y = toFiniteNumber(candidate.y);
+    const w = toFiniteNumber(candidate.w);
+    const h = toFiniteNumber(candidate.h);
+    if (x === null || y === null || w === null || h === null) continue;
+
+    const next: GridWidget = {
+      ...candidate,
+      id,
+      type,
+      x: Math.max(0, Math.round(x)),
+      y: Math.max(0, Math.round(y)),
+      w: Math.max(1, Math.round(w)),
+      h: Math.max(1, Math.round(h)),
+    };
+
+    delete (next as GridWidget & { selected?: boolean }).selected;
+
+    if (!isWithinBounds(next, columns)) continue;
+    if (hasCollisions(next, normalized)) continue;
+
+    seenIds.add(id);
+    normalized.push(next);
+  }
+
+  return normalized;
+}
+
 /**
  * Hook for managing grid layout state.
  * Handles widget positions, sizes, add/remove/move/resize operations,
@@ -210,20 +256,20 @@ export function useGridLayout(config: GridLayoutConfig = {}): UseGridLayoutRetur
 
   const deserialize = useCallback(
     (data: SerializedLayout) => {
-      const next = data.widgets.map((w) => ({ ...w }));
+      const next = normalizeIncomingWidgets(data?.widgets, columns);
       commit(next);
       reconcileSelection(next);
     },
-    [commit, reconcileSelection]
+    [columns, commit, reconcileSelection]
   );
 
   const setLayout = useCallback(
     (newWidgets: GridItemConfig[]) => {
-      const next = newWidgets.map((w) => ({ ...w }));
+      const next = normalizeIncomingWidgets(newWidgets, columns);
       commit(next);
       reconcileSelection(next);
     },
-    [commit, reconcileSelection]
+    [columns, commit, reconcileSelection]
   );
 
   return {
