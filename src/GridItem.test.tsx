@@ -356,6 +356,25 @@ describe('GridItem — drag to move', () => {
     unmount();
   });
 
+  it('cleans up drag listeners when the component unmounts mid-gesture', () => {
+    const onMove = vi.fn();
+    const { container, unmount } = mount(
+      <GridItem widget={baseWidget} {...dragProps} onMove={onMove} />
+    );
+    const header = container.querySelector('.redgrid-item__header') as HTMLElement;
+
+    fire(header, pointer('pointerdown', { clientX: 0, clientY: 0 }));
+    expect(onMove).not.toHaveBeenCalled();
+
+    // Simulate an external rerender that removes the widget before pointer-up.
+    // Old listeners from this gesture must be removed so we do not keep stale
+    // interactions alive after unmount.
+    unmount();
+    // Dispatch one more move through the global document listener.
+    fire(document, pointer('pointermove', { clientX: 500, clientY: 500 }));
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
   it('ends the drag on pointercancel (OS-interrupted gesture)', () => {
     const onMove = vi.fn();
     const { container, item, unmount } = mount(
@@ -452,5 +471,20 @@ describe('GridItem — resize', () => {
     expect(onResize).not.toHaveBeenCalled();
 
     unmount();
+  });
+
+  it('cleans up resize listeners when the component unmounts mid-gesture', () => {
+    const onResize = vi.fn();
+    const { container, unmount } = mount(
+      <GridItem widget={baseWidget} {...resizeProps} onResize={onResize} />
+    );
+    const handle = container.querySelector('.redgrid-item__resize') as HTMLElement;
+
+    fire(handle, pointer('pointerdown', { clientX: 0, clientY: 0 }));
+
+    // Simulate unmount without a final pointerup.
+    unmount();
+    fire(document, pointer('pointermove', { clientX: 110, clientY: 60 }));
+    expect(onResize).not.toHaveBeenCalled();
   });
 });

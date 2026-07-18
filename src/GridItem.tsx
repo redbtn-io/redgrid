@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { GridWidget, WidgetComponentProps } from './types';
 import { getWidget } from './registry';
 
@@ -58,6 +58,39 @@ export function GridItem({
     lastW: number;
     lastH: number;
   } | null>(null);
+  const dragListenersRef = useRef<{
+    move: (ev: PointerEvent) => void;
+    end: () => void;
+  } | null>(null);
+  const resizeListenersRef = useRef<{
+    move: (ev: PointerEvent) => void;
+    end: () => void;
+  } | null>(null);
+
+  const cleanupDragListeners = useCallback(() => {
+    const active = dragListenersRef.current;
+    if (!active) return;
+    document.removeEventListener('pointermove', active.move);
+    document.removeEventListener('pointerup', active.end);
+    document.removeEventListener('pointercancel', active.end);
+    dragListenersRef.current = null;
+  }, []);
+
+  const cleanupResizeListeners = useCallback(() => {
+    const active = resizeListenersRef.current;
+    if (!active) return;
+    document.removeEventListener('pointermove', active.move);
+    document.removeEventListener('pointerup', active.end);
+    document.removeEventListener('pointercancel', active.end);
+    resizeListenersRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cleanupDragListeners();
+      cleanupResizeListeners();
+    };
+  }, [cleanupDragListeners, cleanupResizeListeners]);
 
   const registration = getWidget(widget.type);
   const WidgetComponent = registration?.component;
@@ -72,6 +105,7 @@ export function GridItem({
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      cleanupDragListeners();
       setIsDragging(true);
       dragStartRef.current = {
         mouseX: e.clientX,
@@ -103,9 +137,7 @@ export function GridItem({
       const handlePointerUp = () => {
         setIsDragging(false);
         dragStartRef.current = null;
-        document.removeEventListener('pointermove', handlePointerMove);
-        document.removeEventListener('pointerup', handlePointerUp);
-        document.removeEventListener('pointercancel', handlePointerUp);
+        cleanupDragListeners();
       };
 
       document.addEventListener('pointermove', handlePointerMove);
@@ -114,6 +146,10 @@ export function GridItem({
       // by a system gesture). Treat the same as pointer-up so we never leak
       // dragging-state across releases.
       document.addEventListener('pointercancel', handlePointerUp);
+      dragListenersRef.current = {
+        move: handlePointerMove,
+        end: handlePointerUp,
+      };
     },
     [editable, widget.x, widget.y, widget.id, columnWidth, rowHeight, gap, onMove]
   );
@@ -125,6 +161,7 @@ export function GridItem({
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      cleanupResizeListeners();
       setIsResizing(true);
       resizeStartRef.current = {
         mouseX: e.clientX,
@@ -155,14 +192,16 @@ export function GridItem({
       const handlePointerUp = () => {
         setIsResizing(false);
         resizeStartRef.current = null;
-        document.removeEventListener('pointermove', handlePointerMove);
-        document.removeEventListener('pointerup', handlePointerUp);
-        document.removeEventListener('pointercancel', handlePointerUp);
+        cleanupResizeListeners();
       };
 
       document.addEventListener('pointermove', handlePointerMove);
       document.addEventListener('pointerup', handlePointerUp);
       document.addEventListener('pointercancel', handlePointerUp);
+      resizeListenersRef.current = {
+        move: handlePointerMove,
+        end: handlePointerUp,
+      };
     },
     [editable, widget.w, widget.h, widget.id, columnWidth, rowHeight, gap, onResize]
   );
