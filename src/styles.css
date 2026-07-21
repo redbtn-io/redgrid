@@ -69,6 +69,12 @@
   touch-action: none;
 }
 
+.redgrid-item__header:focus-visible,
+.redgrid-item__resize:focus-visible {
+  outline: 2px solid var(--accent, #ef4444);
+  outline-offset: 2px;
+}
+
 .redgrid-item__header:active {
   cursor: grabbing;
 }

@@ -66,6 +66,14 @@ export function GridItem({
     move: (ev: PointerEvent) => void;
     end: () => void;
   } | null>(null);
+  const keyboardDragRef = useRef({
+    x: widget.x,
+    y: widget.y,
+  });
+  const keyboardResizeRef = useRef({
+    w: widget.w,
+    h: widget.h,
+  });
 
   const cleanupDragListeners = useCallback(() => {
     const active = dragListenersRef.current;
@@ -91,6 +99,17 @@ export function GridItem({
       cleanupResizeListeners();
     };
   }, [cleanupDragListeners, cleanupResizeListeners]);
+
+  useEffect(() => {
+    keyboardDragRef.current = {
+      x: widget.x,
+      y: widget.y,
+    };
+    keyboardResizeRef.current = {
+      w: widget.w,
+      h: widget.h,
+    };
+  }, [widget.x, widget.y, widget.w, widget.h]);
 
   const registration = getWidget(widget.type);
   const WidgetComponent = registration?.component;
@@ -214,6 +233,58 @@ export function GridItem({
     [onSelect, selected, widget.id]
   );
 
+  const handleDragKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!editable || !onMove) return;
+
+      let deltaX = 0;
+      let deltaY = 0;
+
+      if (e.key === 'ArrowLeft') deltaX = -1;
+      else if (e.key === 'ArrowRight') deltaX = 1;
+      else if (e.key === 'ArrowUp') deltaY = -1;
+      else if (e.key === 'ArrowDown') deltaY = 1;
+      else return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const nextX = Math.max(0, keyboardDragRef.current.x + deltaX);
+      const nextY = Math.max(0, keyboardDragRef.current.y + deltaY);
+      if (nextX === keyboardDragRef.current.x && nextY === keyboardDragRef.current.y) return;
+
+      keyboardDragRef.current = { x: nextX, y: nextY };
+      onMove(widget.id, nextX, nextY);
+    },
+    [editable, onMove, widget.id]
+  );
+
+  const handleResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!editable || !onResize) return;
+
+      let deltaW = 0;
+      let deltaH = 0;
+
+      if (e.key === 'ArrowLeft') deltaW = -1;
+      else if (e.key === 'ArrowRight') deltaW = 1;
+      else if (e.key === 'ArrowUp') deltaH = -1;
+      else if (e.key === 'ArrowDown') deltaH = 1;
+      else return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const nextW = Math.max(1, keyboardResizeRef.current.w + deltaW);
+      const nextH = Math.max(1, keyboardResizeRef.current.h + deltaH);
+      if (nextW === keyboardResizeRef.current.w && nextH === keyboardResizeRef.current.h) return;
+
+      keyboardResizeRef.current = { w: nextW, h: nextH };
+      onResize(widget.id, nextW, nextH);
+    },
+    [editable, onResize, widget.id]
+  );
+
   const widgetProps: WidgetComponentProps = {
     widget,
     editable,
@@ -239,7 +310,14 @@ export function GridItem({
     >
       {/* Drag handle — header bar */}
       {editable && (
-        <div className="redgrid-item__header" onPointerDown={handleDragStart}>
+        <div
+          className="redgrid-item__header"
+          onPointerDown={handleDragStart}
+          onKeyDown={handleDragKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label="Move widget"
+        >
           <span className="redgrid-item__grip">&#x2630;</span>
           {selected && onRemove && (
             <button
@@ -269,7 +347,14 @@ export function GridItem({
 
       {/* Resize handle — bottom-right corner */}
       {editable && (
-        <div className="redgrid-item__resize" onPointerDown={handleResizeStart}>
+        <div
+          className="redgrid-item__resize"
+          onPointerDown={handleResizeStart}
+          onKeyDown={handleResizeKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label="Resize widget"
+        >
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.5" fill="none" />
           </svg>

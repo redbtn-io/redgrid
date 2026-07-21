@@ -63,6 +63,15 @@ function click(): MouseEvent {
   return new MouseEvent('click', { bubbles: true, cancelable: true });
 }
 
+function keyDown(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  return new KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    key,
+    ...init,
+  });
+}
+
 const baseWidget: GridWidget = { id: 'w1', type: 'chart', x: 1, y: 1, w: 2, h: 2 };
 
 // The registry is a module-level singleton — reset between tests.
@@ -296,6 +305,23 @@ describe('GridItem — drag to move', () => {
     unmount();
   });
 
+  it('moves with keyboard arrows from the move handle', () => {
+    const onMove = vi.fn();
+    const { container, unmount } = mount(
+      <GridItem widget={baseWidget} {...dragProps} onMove={onMove} />
+    );
+    const header = container.querySelector('.redgrid-item__header') as HTMLElement;
+
+    header.focus();
+    fire(header, keyDown('ArrowRight'));
+    expect(onMove).toHaveBeenCalledWith('w1', 2, 1);
+
+    fire(header, keyDown('ArrowDown'));
+    expect(onMove).toHaveBeenCalledWith('w1', 2, 2);
+
+    unmount();
+  });
+
   it('ignores non-primary mouse buttons', () => {
     const onMove = vi.fn();
     const { container, item, unmount } = mount(
@@ -454,6 +480,23 @@ describe('GridItem — resize', () => {
     expect(onResize).toHaveBeenLastCalledWith('w1', 2, 2);
 
     fire(document, pointer('pointerup'));
+    unmount();
+  });
+
+  it('resizes with keyboard arrows from the resize handle', () => {
+    const onResize = vi.fn();
+    const { container, unmount } = mount(
+      <GridItem widget={baseWidget} {...resizeProps} onResize={onResize} />
+    );
+    const handle = container.querySelector('.redgrid-item__resize') as HTMLElement;
+
+    handle.focus();
+    fire(handle, keyDown('ArrowRight'));
+    expect(onResize).toHaveBeenCalledWith('w1', 3, 2);
+
+    fire(handle, keyDown('ArrowDown'));
+    expect(onResize).toHaveBeenCalledWith('w1', 3, 3);
+
     unmount();
   });
 
