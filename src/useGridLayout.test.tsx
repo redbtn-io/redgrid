@@ -349,6 +349,62 @@ describe('useGridLayout', () => {
     unmount();
   });
 
+  it('normalizes malformed widgets in setLayout by dropping duplicates and invalid entries', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    act(() => {
+      apiRef.current!.setLayout([
+        { id: 'keep', type: 'chart', x: 0, y: 0, w: 1, h: 1, selected: true } as const,
+        { id: 'dupe', type: 'chart', x: 1, y: 0, w: 1, h: 1, selected: true },
+        { id: 'dupe', type: 'chart', x: 0, y: 1, w: 1, h: 1, selected: false },
+        { id: 'bad', type: 'chart', x: 2, y: 0, w: 1, h: 1, selected: true },
+        { id: 'bad-size', type: 'chart', x: 0, y: 0, w: 0, h: 1, selected: false },
+      ] as any);
+    });
+
+    expect(apiRef.current?.layout).toHaveLength(2);
+    expect(apiRef.current?.layout.map((w) => w.id)).toEqual(['keep', 'dupe']);
+
+    // Stale/runtime-only `selected` flags must not persist through normalization.
+    expect('selected' in (apiRef.current?.layout[0] as Record<string, unknown>)).toBe(false);
+    expect('selected' in (apiRef.current?.layout[1] as Record<string, unknown>)).toBe(false);
+
+    act(() => {
+      apiRef.current!.moveWidget('dupe', 0, 1);
+      apiRef.current!.resizeWidget('dupe', 2, 1);
+    });
+
+    const dupe = apiRef.current?.layout.find((widget) => widget.id === 'dupe');
+    expect(dupe?.x).toBe(0);
+    expect(dupe?.w).toBe(2);
+
+    unmount();
+  });
+
+  it('normalizes malformed payloads in deserialize so duplicate ids are not retained', () => {
+    const { apiRef, unmount } = mountUseGridLayout();
+
+    act(() => {
+      apiRef.current!.deserialize({
+        columns: 2,
+        rowHeight: 60,
+        gap: 8,
+        widgets: [
+          { id: 'keep', type: 'chart', x: 0, y: 0, w: 1, h: 1, selected: true },
+          { id: 'dupe', type: 'chart', x: 1, y: 0, w: 1, h: 1, selected: true },
+          { id: 'dupe', type: 'chart', x: 1, y: 1, w: 1, h: 1, selected: false },
+          { id: 'bad-size', type: 'chart', x: Number.NaN, y: 0, w: 1, h: 1, selected: false },
+          { id: 'out-of-bounds', type: 'chart', x: 1, y: 0, w: 3, h: 1, selected: false },
+        ] as any,
+      });
+    });
+
+    expect(apiRef.current?.layout).toHaveLength(2);
+    expect(apiRef.current?.layout.map((w) => w.id)).toEqual(['keep', 'dupe']);
+
+    unmount();
+  });
+
   // --- Selection reconciliation on wholesale layout replacement -------------
   // `removeWidget` already clears a dangling selection; `setLayout` and
   // `deserialize` must uphold the same invariant so `selectedId` never points
